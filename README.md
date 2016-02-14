@@ -1,0 +1,2 @@
+# JshBot
+A Discord chatbot
