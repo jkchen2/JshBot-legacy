@@ -1,6 +1,6 @@
 import json, os.path, inspect, asyncio
 
-from jshbot import configmanager, servermanager
+from jshbot import configmanager, servermanager, botmanager
 from jshbot.servermanager import get_data, write_data
 from jshbot.jbce import bot_exception
 
@@ -15,8 +15,9 @@ for command_list in list(commands_dictionary.values()):
 
 usage_string = """Usage:
     !user [(-info|i) (user name)]
-          [-status|s (user name)] [-setstatus|ss <status text>]
-          [-nickname|nick|n (user name)] [-setnickname|setnick|sn <nickname>]"""
+          [-status|s (user name)] [-setstatus|ss (status text)]
+          [-nickname|nick|n (user name)] [-setnickname|setnick|sn (nickname)]
+          [-setcolor|sc (hex color)] [-updatecolor|uc]"""
 
 def get_formatted_usage_string():
     return "\n```\n{}\n```".format(usage_string)
@@ -34,12 +35,12 @@ Aliases:
 Shortcuts:
     !user -info (user name)
         [!userinfo (user name)]
-    !user -setstatus <status text>
-        [!setstatus <status text>]
+    !user -setstatus (status text)
+        [!setstatus (status text)]
     !user -nickname (user name)
         [!nickname (user name)] [!nick (user name)]
-    !user -setnickname <nickname>
-        [!setnickname <nickname>] [!setnick <nickname>]
+    !user -setnickname (nickname)
+        [!setnickname (nickname)] [!setnick (nickname)]
 ```""".format(usage_string=usage_string)
 
 EXCEPT_TYPE = "User manager"
@@ -96,6 +97,7 @@ Aliases: {user_data[aliases]}
 Permissions: {permissions_text}
 Joined: {user_data[joined]}
 Last played game: {user_data[last_game]}
+Color: {user_data[color]}
 Status: {user_data[status]}
 Avatar: {user_data[avatar]}
 ```""".format(user_id=user_id, user_data=user_data, permissions_text=permissions_text)
@@ -136,6 +138,45 @@ def set_nickname(server_id, user_id, nickname_text):
     servers_data[server_id]['users'][user_id]['nickname'] = nickname_text
     write_data()
     return "Nickname successfully {}!".format("set" if nickname_text else "cleared")
+
+def get_color(server_id, user_id):
+    """Returns the given user's color in hex format, starting with '#'."""
+    user_data = servermanager.servers_data[server_id]['users'][user_id]
+    name = user_data['name']
+    color = user_data['color'] if user_data['color'] else "None"
+    return "{name}'s custom color: {color}".format(name=name, color=color)
+
+async def set_color(server_id, user_id, color):
+    """Gives the user the given color as a role."""
+    if not botmanager.has_role_permissions(server_id): # Check bot permissions first
+        raise bot_exception(EXCEPT_TYPE, "Bot must be able to manage permissions in order to change role colors.")
+    if color is None:
+        servermanager.servers_data[server_id]['users'][user_id]['color'] = ''
+        write_data()
+        await botmanager.update_color_role(server_id, user_id, None)
+        return "Color successfully cleared!"
+    if color.startswith('#'): # Just in case people just copy values over
+        color = color[1:]
+    try: # Make sure we're given a valid hex value here
+        converted = int(color, 16)
+    except ValueError:
+        raise bot_exception(EXCEPT_TYPE, "'{}' does not appear to be a valid hex color.".format(color))
+    await botmanager.update_color_role(server_id, user_id, converted)
+    servermanager.servers_data[server_id]['users'][user_id]['color'] = '#{}'.format(color.upper())
+    write_data()    
+    return "Color successfully set!"
+
+async def update_color(server_id, user_id):
+    """Refreshes the color role so that it is on top."""
+    if not botmanager.has_role_permissions(server_id):
+        raise bot_exception(EXCEPT_TYPE, "Bot must be able to manage permissions in order to change role colors.")
+    color = servermanager.servers_data[server_id]['users'][user_id]['color']
+    if color:
+        converted = int(color[1:], 16)
+        await botmanager.update_color_role(server_id, user_id, converted)
+    else:
+        raise bot_exception(EXCEPT_TYPE, "You currently don't have a custom color!")
+    return "Color successfully refreshed!"
 
 async def get_response(command, options, arguments, arguments_blocks, raw_parameters, server_id, channel_id, voice_channel_id, user_id, is_admin, is_private):
     """Gets a response from the command and parameters."""
@@ -184,6 +225,17 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
             return set_nickname(server_id, user_id, '')
         else: # Set nickname
             return set_nickname(server_id, user_id, arguments[0] if num_arguments == 1 else arguments_blocks[0])
+    
+    # Set role color
+    elif (not using_shortcut and num_options == 1 and options[0] in ['setcolor', 'sc'] and num_arguments <= 1):
+        if num_arguments == 0: # Clear nickname
+            return await set_color(server_id, user_id, None)
+        else: # Set nickname
+            return await set_color(server_id, user_id, arguments[0])
+
+    # Refresh color
+    elif (not using_shortcut and num_options == 1 and options[0] in ['updatecolor', 'uc'] and num_arguments == 0):
+        return await update_color(server_id, user_id)
     
     # Invalid command
     raise bot_exception(EXCEPT_TYPE, "Invalid syntax", get_formatted_usage_string())

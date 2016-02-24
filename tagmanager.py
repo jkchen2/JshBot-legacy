@@ -58,13 +58,13 @@ def get_info(server_id, tag_name):
     """Builds a string listing known information of given tag."""
     tag_data = get_tag_data(server_id, tag_name)
     author_name = usermanager.get_name(server_id, tag_data['author_id'])
-    to_return = """Tag information for {tag_name}:
+    to_return = """Tag information for {tag_data[full_name]}:
 ```
 Author: {author_name}
 Private: {tag_data[private]}
 Hits: {tag_data[hits]}
 Date created: {tag_data[date_created]}
-```""".format(tag_name=tag_name, author_name=author_name, tag_data=tag_data)
+```""".format(author_name=author_name, tag_data=tag_data)
     return to_return # Placeholder if this will be modified later
     
 def list_tags(server_id, user_id=''):
@@ -76,7 +76,7 @@ def list_tags(server_id, user_id=''):
     found_list = []
     for tag_name, tag_data in tags.items():
         if not user_id or user_id == tag_data['author_id']:
-            found_list.append(tag_name)
+            found_list.append(tag_data['full_name'])
     return process_found_list(initial_text, found_list)
     
 def search_tags(server_id, search_text):
@@ -116,8 +116,11 @@ def update_tag(server_id, tag_name, increment_hits=False, **kwargs):
     tag_text -- text to go along with the tag
     private -- whether or not the tag can only be called by the author
     hits -- how many times the tag has been called
+    full_name -- what the full name (with spaces) is (never passed in)
     """
     to_return = ''
+    full_name = tag_name
+    tag_name = tag_name.replace(' ', '')
     servers_data = servermanager.servers_data
     if increment_hits: # Updating hit counter
         servers_data[server_id]['tags'][tag_name]['hits'] += 1
@@ -130,14 +133,21 @@ def update_tag(server_id, tag_name, increment_hits=False, **kwargs):
                 raise bot_exception(EXCEPT_TYPE, "Tag '{}' already exists".format(tag_name))
             del kwargs['user_id'] # Don't write user_id to updated tag
             servers_data[server_id]['tags'][tag_name].update(kwargs)
-            to_return += "Tag '{}' successfully modified!".format(tag_name)
+            to_return += "Tag '{}' successfully modified!".format(full_name)
         except KeyError: # Tag doesn't exist. Create it.
+            if 'tag_text' not in kwargs:
+                raise bot_exception(EXCEPT_TYPE, "Tag '{}' does not exist".format(tag_name))
             if len(tag_name) > 50:
                 raise bot_exception(EXCEPT_TYPE, "Tag names cannot be larger than 50 characters long")
             if len(kwargs['tag_text']) > 2000: # This shouldn't really happen, ever
                 raise bot_exception(EXCEPT_TYPE, "Tag text cannot be larger than 2000 characters long")
+            # Edit safety
+            if 'user_id' in kwargs:
+                kwargs['author_id'] = kwargs['user_id']
+                del kwargs['user_id']
+            kwargs['full_name'] = full_name
             servers_data[server_id]['tags'][tag_name] = {**kwargs, 'hits':0, 'date_created':time.strftime("%c")}
-            to_return += "Tag '{}' successfully created!".format(tag_name)
+            to_return += "Tag '{}' successfully created!".format(full_name)
     write_data()
     return to_return
 
@@ -179,10 +189,10 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
     if (not using_shortcut and num_options == 0 and num_arguments >= 1):
         try: # For convenience, try with both raw parameters and single argument
             if num_arguments == 1:
-                return get_tag_text(server_id, arguments[0].lower(), user_id)
+                return get_tag_text(server_id, arguments[0].lower().replace(' ', ''), user_id)
         except bot_exception:
             pass
-        return get_tag_text(server_id, raw_parameters.lower(), user_id)
+        return get_tag_text(server_id, raw_parameters.lower().replace(' ', ''), user_id)
 
     # Create tag
     elif (num_arguments >= 2 and ((command in ['tc'] and num_options == 0) or
@@ -194,7 +204,7 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
     # Remove tag
     elif (num_arguments >= 1 and ((command in ['tr'] and num_options == 0) or
             (not using_shortcut and num_options == 1 and options[0] in ['r', 'remove']))):
-        tag_name = arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()
+        tag_name = (arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()).replace(' ', '')
         return remove_tag(server_id, tag_name, user_id)
     
     # List tags
@@ -206,11 +216,13 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
     # Search tags
     elif (num_arguments >= 1 and ((command in ['ts'] and num_options == 0) or
             (not using_shortcut and num_options == 1 and options[0] in ['s', 'search']))):
-        return search_tags(server_id, arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower())
+        tag_name = (arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()).replace(' ', '')
+        return search_tags(server_id, tag_name)
         
     # Tag info
     elif not using_shortcut and num_options == 1 and num_arguments >= 1 and options[0] in ['i', 'info']:
-        return get_info(server_id, arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower())
+        tag_name = (arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()).replace(' ', '')
+        return get_info(server_id, tag_name)
     
     # Edit tag
     elif not using_shortcut and (num_options in range(1,3)) and num_arguments >= 1 and options[0] in ['e', 'edit']:
@@ -222,7 +234,7 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
                 return update_tag(server_id, tag_name=tag_name, user_id=user_id, private=True)
         elif num_options == 1 and num_arguments >= 2: # Modify tag text
             tag_text = arguments[1] if num_arguments == 2 else arguments_blocks[1]
-            return update_tag(server_id, tag_name=arguments[0].lower(), user_id=user_id, tag_text=tag_text)
+            return update_tag(server_id, tag_name=arguments[0].lower(), user_id=user_id, tag_text=tag_text, private=False)
 
     # Invalid command
     raise bot_exception(EXCEPT_TYPE, "Invalid syntax", get_formatted_usage_string())

@@ -1,5 +1,5 @@
-BOT_VERSION = "0.2.5 hasty alpha (Git Edition)"
-BOT_DATE = "February 10th, 2015"
+BOT_VERSION = "0.2.6 alpha"
+BOT_DATE = "February 24th, 2015"
 
 import discord, asyncio, sys, os.path, urllib.request
 
@@ -60,6 +60,20 @@ def on_ready():
         print("Changing status...")
         yield from change_status()
     
+    # Change color if configured
+    try:
+        if configmanager.config['bot_color']:
+            for server in client.servers:
+                if has_role_permissions(server.id):
+                    yield from update_color_role(
+                        server.id,
+                        client.user.id,
+                        int(configmanager.config['bot_color'], 16))
+                else:
+                    print("Uh oh. Bot doesn't have role permissions in server {}".format(str(server)))
+    except ValueError:
+        print("You wanted to update the color, but you screwed it up somehow.")
+    
     print("Updating servers information...")
     for server in client.servers:
         update_server(server)
@@ -106,13 +120,41 @@ def interrupt_broadcast(server_id, channel_id, text):
 def disconnect_bot():
     yield from client.logout()
 
+async def update_color_role(server_id, user_id, color):
+
+    # Get server and user, along with role name
+    server = discord.utils.get(client.servers, id=server_id)
+    user = discord.utils.get(server.members, id=user_id)
+    role_name = 'c_{}'.format(user_id)
+    
+    # Remove role if it exists, even if it's not used
+    current_role = discord.utils.get(user.roles, name=role_name)
+    if current_role is not None:
+        await client.delete_role(server, current_role)
+    if color is not None: # Assign new color
+        new_role = await client.create_role(
+            server,
+            colour=discord.Color(color),
+            name=role_name)
+        
+        # Finally, assign new role to user
+        await client.add_roles(user, new_role)
+    
+
+def has_role_permissions(server_id):
+    server = discord.utils.get(client.servers, id=server_id)
+    for role in server.me.roles:
+        if role.permissions.manage_roles:
+            return True
+    return False
+
 def get_voice_channel(server_id, voice_channel_id):
     server = discord.utils.get(client.servers, id=server_id)
     return discord.utils.get(server.channels, id=voice_channel_id)
 
 
 def check_opus(): # Check opus and load if it isn't
-    pass
+    pass # Oh look, we loaded Opus. Champagne for everyone!
 
 async def update_bot():
     nickname = configmanager.config['bot_nickname'] if len(configmanager.config['bot_nickname']) <= 50 else ''

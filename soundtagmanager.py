@@ -62,7 +62,7 @@ def get_sound_info(server_id, sound_tag_name):
     """Builds a string listing known information of the given sound tag."""
     sound_tag_data = get_sound_tag_data(server_id, sound_tag_name)
     author_name = usermanager.get_name(server_id, sound_tag_data['author_id'])
-    to_return = """Sound tag information for {sound_tag_name}:
+    to_return = """Sound tag information for {sound_tag_data[full_name]}:
 ```
 Author: {author_name}
 Private: {sound_tag_data[private]}
@@ -71,7 +71,7 @@ Date created: {sound_tag_data[date_created]}
 Sound URL: {sound_tag_data[url]}
 Type: {sound_tag_data[type]}
 Length: {sound_tag_data[length]} second(s)
-```""".format(sound_tag_name=sound_tag_name, author_name=author_name, sound_tag_data=sound_tag_data)
+```""".format(author_name=author_name, sound_tag_data=sound_tag_data)
     return to_return # Placeholder if this will be modified later
     
 def list_sound_tags(server_id, user_id=''):
@@ -83,7 +83,7 @@ def list_sound_tags(server_id, user_id=''):
     found_list = []
     for sound_tag_name, sound_tag_data in sound_tags.items():
         if not user_id or user_id == sound_tag_data['author_id']:
-            found_list.append(sound_tag_name)
+            found_list.append(sound_tag_data['full_name'])
     return process_found_list(initial_text, found_list)
     
 def search_sound_tags(server_id, search_text):
@@ -129,8 +129,11 @@ def update_sound_tag(server_id, sound_tag_name, increment_hits=False, **kwargs):
     hits -- how many times the tag has been called
     type -- tag type (either YouTube or direct)
     length -- how long the sound tag is in seconds
+    full_name -- what the full name (with spaces) is
     """
     to_return = ''
+    full_name = sound_tag_name
+    sound_tag_name = sound_tag_name.replace(' ', '')
     servers_data = servermanager.servers_data
     if increment_hits: # Updating hit counter
         servers_data[server_id]['sound_tags'][sound_tag_name]['hits'] += 1
@@ -167,14 +170,21 @@ def update_sound_tag(server_id, sound_tag_name, increment_hits=False, **kwargs):
                 raise bot_exception(EXCEPT_TYPE, "Sound tag '{}' already exists".format(sound_tag_name))
             del kwargs['user_id'] # Don't write user_id to updated tag
             servers_data[server_id]['sound_tags'][sound_tag_name].update(kwargs)
-            to_return += "Sound tag '{}' successfully modified!".format(sound_tag_name)
+            to_return += "Sound tag '{}' successfully modified!".format(full_name)
         except KeyError: # Tag doesn't exist. Create it.
+            if 'url' not in kwargs:
+                raise bot_exception(EXCEPT_TYPE, "Sound tag '{}' does not exist".format(sound_tag_name))
             if len(sound_tag_name) > 50:
                 raise bot_exception(EXCEPT_TYPE, "Sound tag names cannot be larger than 50 characters long")
             if len(kwargs['url']) > 2000: # This shouldn't really happen, ever
                 raise bot_exception(EXCEPT_TYPE, "Sound tag url cannot be larger than 2000 characters long (how did you do this)")
+            # Edit safety
+            if 'user_id' in kwargs:
+                kwargs['author_id'] = kwargs['user_id']
+                del kwargs['user_id']
+            kwargs['full_name'] = full_name
             servers_data[server_id]['sound_tags'][sound_tag_name] = {**kwargs, 'hits':0, 'date_created':time.strftime("%c")}
-            to_return += "Sound tag '{}' successfully created!".format(sound_tag_name)
+            to_return += "Sound tag '{}' successfully created!".format(full_name)
     write_data()
     return to_return
 
@@ -261,17 +271,28 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
     num_arguments = len(arguments)
     using_shortcut = command in commands_dictionary['shortcut_commands']
 
+    # Play sounds
+    if (not using_shortcut and num_options == 0 and num_arguments >= 1):
+        try: # For convenience, try with both raw parameters and single argument
+            if num_arguments == 1:
+                await play_sound_tag(server_id, voice_channel_id, arguments[0].lower().replace(' ', ''), user_id)
+                return None;
+        except bot_exception:
+            pass
+        await play_sound_tag(server_id, voice_channel_id, arguments_blocks[0].lower().replace(' ', ''), user_id)
+        return None;
+
     # Create sound tag
-    if (num_arguments == 2 and ((command in ['stc'] and num_options == 0) or
+    elif (num_arguments == 2 and ((command in ['stc'] and num_options == 0) or
             (not using_shortcut and (num_options == 1 or (num_options == 2 and options[1] in ['p', 'private'])) and
             options[0] in ['c', 'create']))):
         use_private = num_options == 2 and options[1] in ['p', 'private'] # Private tag
-        return update_sound_tag(server_id, sound_tag_name=arguments[0], url=arguments[1], author_id=user_id, private=use_private)
+        return update_sound_tag(server_id, sound_tag_name=arguments[0].lower(), url=arguments[1], author_id=user_id, private=use_private)
 
     # Remove sound tag
     elif (num_arguments >= 1 and ((command in ['str'] and num_options == 0) or
             (not using_shortcut and num_options == 1 and options[0] in ['r', 'remove']))):
-        sound_tag_name = arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()
+        sound_tag_name = (arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()).replace(' ', '')
         return remove_sound_tag(server_id, sound_tag_name, user_id)
     
     # List sound tags
@@ -282,35 +303,27 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
     # Search sound tags
     elif (num_arguments >= 1 and ((command in ['sts'] and num_options == 0) or
             (not using_shortcut and num_options == 1 and options[0] in ['s', 'search']))):
-        return search_sound_tags(server_id, arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower())
+        sound_tag_name = (arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()).replace(' ', '')
+        return search_sound_tags(server_id, sound_tag_name)
         
     # Sound tag info
     elif not using_shortcut and num_options == 1 and num_arguments >= 1 and options[0] in ['i', 'info']:
-        return get_sound_info(server_id, arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower())
+        sound_tag_name = (arguments[0].lower() if num_arguments == 1 else arguments_blocks[0].lower()).replace(' ', '')
+        return get_sound_info(server_id, sound_tag_name)
     
     # Edit sound tag
     elif not using_shortcut and (num_options in range(1,3)) and num_arguments <= 2 and options[0] in ['e', 'edit']:
         if num_options == 2 and num_arguments == 1: # Set private or public
             if options[1] == 'setpublic': # Explicit to follow a strict syntax
-                return update_sound_tag(server_id, sound_tag_name=arguments[0], user_id=user_id, private=False)
+                return update_sound_tag(server_id, sound_tag_name=arguments[0].lower(), user_id=user_id, private=False)
             elif options[1] == 'setprivate':
-                return update_sound_tag(server_id, sound_tag_name=arguments[0], user_id=user_id, private=True)
-        elif num_options == 1 and num_arguments == 2: # Modify tag text
-            return update_sound_tag(server_id, sound_tag_name=arguments[0], user_id=user_id, url=arguments[1])
+                return update_sound_tag(server_id, sound_tag_name=arguments[0].lower(), user_id=user_id, private=True)
+        elif num_options == 1 and num_arguments == 2: # Modify sound tag url
+            return update_sound_tag(server_id, sound_tag_name=arguments[0].lower(), user_id=user_id, url=arguments[1], private=False)
     
     elif not using_shortcut and num_options == 1 and num_arguments == 0 and options[0] in ['stop', 'silence', 'silent', 'fu']:
         return await stop_sounds()
     
-    # Play sounds
-    elif (not using_shortcut and num_options == 0 and num_arguments >= 1):
-        try: # For convenience, try with both raw parameters and single argument
-            if num_arguments == 1:
-                await play_sound_tag(server_id, voice_channel_id, arguments[0].lower(), user_id)
-                return None;
-        except bot_exception:
-            pass
-        await play_sound_tag(server_id, voice_channel_id, arguments_blocks[0].lower(), user_id)
-        return None;
 
     # Invalid command
     raise bot_exception(EXCEPT_TYPE, "Invalid syntax", get_formatted_usage_string())

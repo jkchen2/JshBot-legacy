@@ -69,6 +69,7 @@ Usage:
            [-mute <type>] [-unmute <type>]
            [-info <type>]
            [-version]
+           [-source]
            [-uptime]
            [-clear]
            [-halt]
@@ -149,7 +150,7 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
         if not is_admin:
             raise bot_exception(BASE_EXCEPT_TYPE, "You must be an admin or the bot owner for these commands")
         if len(arguments) == 1 and not is_private:
-            if options[0] in ['ban', 'unban']: # All checks here are xplicit to enforce strict syntax
+            if options[0] in ['ban', 'unban']: # All checks here are explicit to enforce strict syntax
                 to_return += servermanager.add_ban(server_id, usermanager.get_user_id(server_id, arguments[0]), add=(options[0] == 'ban'))
             elif options[0] in ['add', 'remove']:
                 if not servermanager.is_owner(user_id):
@@ -184,6 +185,14 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
                 await botmanager.disconnect_bot()
                 await asyncio.sleep(2)
                 sys.exit()
+            elif options[0] == 'source':
+                to_return += random.choice([
+                    "It's shit. I'm sorry.", "You want to see what the Matrix is like?",
+                    "Script kiddie level stuff in here.", "Beware the lack of PEP 8 guidelines inside!",
+                    "Snarky comments inside and out.", "The last codebender. And he's shit at it.",
+                    "Years down the road, this will all just be a really embarrassing but funny joke.",
+                    "Made with ~~love~~ pure hatred.", "At least he's using version control."])
+                to_return += "\nhttps://github.com/TheJsh/JshBot"
             elif options[0] == 'clear':
                 to_return += '```\n'
                 for i in range(0, 80):

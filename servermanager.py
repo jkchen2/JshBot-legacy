@@ -1,4 +1,4 @@
-import json, os.path
+import json, os.path, threading
 
 from jshbot import configmanager, botmanager
 from jshbot.configmanager import data_directory
@@ -7,6 +7,7 @@ from jshbot.jbce import bot_exception
 EXCEPT_TYPE = "Server manager"
 
 servers_data = {}
+write_lock = threading.Lock()
 
 # I hate typing
 def get_data(): # Unused, delete later
@@ -24,8 +25,10 @@ def load_data():
 # I still hate typing
 def write_data():
     """Serializes the given data as servers.json."""
+    write_lock.acquire()
     with open(data_directory + '/servers.json', 'w') as servers_file:
         json.dump(servers_data, servers_file, indent=4)
+    write_lock.release()
 
 def is_bot(user_id):
     """Checks if user is actually the bot itself"""
