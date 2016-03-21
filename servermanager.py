@@ -197,8 +197,11 @@ Bans: {server_data[bans]}
 Admins: {server_data[admins]}
 Server owner: {server_data[owner]}
 Bot owner: {config[owner_id]}
+Total tags: {total_tags}
+Total sound tags: {total_sound_tags}
 Icon: {server_data[icon]}
-```""".format(server_id=server_id, server_data=servers_data[server_id], config=configmanager.config)
+```""".format(server_id=server_id, server_data=servers_data[server_id], config=configmanager.config,
+        total_tags=len(servers_data[server_id]['tags']), total_sound_tags=len(servers_data[server_id]['sound_tags']))
 
 def get_channel_info(server_id, channel_id):
     """Retrieves a bundle of channel information."""

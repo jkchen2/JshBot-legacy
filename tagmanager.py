@@ -1,6 +1,6 @@
 import json, os.path, time, random, asyncio
 
-from jshbot import servermanager, usermanager
+from jshbot import servermanager, usermanager, configmanager
 from jshbot.servermanager import write_data
 from jshbot.jbce import bot_exception
 
@@ -71,7 +71,7 @@ def list_tags(server_id, user_id=''):
     """Lists either all tags or tags made by a specific user."""
     initial_text = "Listing all tags:"
     if user_id:
-        initial_text = "Listing tags by {}:".format(usermanager.get_name(server_id, user_id))
+        initial_text = "Listing tags created by {}:".format(usermanager.get_name(server_id, user_id))
     tags = servermanager.servers_data[server_id]['tags']
     found_list = []
     for tag_name, tag_data in tags.items():
@@ -125,7 +125,7 @@ def update_tag(server_id, tag_name, increment_hits=False, **kwargs):
     if increment_hits: # Updating hit counter
         servers_data[server_id]['tags'][tag_name]['hits'] += 1
     else: # Creating or modifying a tag
-        try:
+        try: # Modify a tag
             tag_data = servers_data[server_id]['tags'][tag_name]
             try:
                 check_tag_access(server_id, tag_data, tag_name, kwargs['user_id'], need_owner=True)
@@ -135,6 +135,8 @@ def update_tag(server_id, tag_name, increment_hits=False, **kwargs):
             servers_data[server_id]['tags'][tag_name].update(kwargs)
             to_return += "Tag '{}' successfully modified!".format(full_name)
         except KeyError: # Tag doesn't exist. Create it.
+            if configmanager.config['tags_per_server'] > 0 and len(servers_data[server_id]['tags']) >= configmanager.config['tags_per_server']:
+                raise bot_exception(EXCEPT_TYPE, "This server has hit the tag limit of {}".format(configmanager.config['tags_per_server']))
             if 'tag_text' not in kwargs:
                 raise bot_exception(EXCEPT_TYPE, "Tag '{}' does not exist".format(tag_name))
             if len(tag_name) > 50:

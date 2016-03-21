@@ -135,18 +135,34 @@ def wikipedia_query(query, simple_result=False):
     if not query:
         return "Try searching for *something* next time, knucklehead."
     try:
+        page = wikipedia.page(query, auto_suggest=True)
         if simple_result: # Just return the url of the found page
-            return wikipedia.page(query, auto_suggest=False).url
-        else: # Return the first ~500 characters of the intro
-            return "***```{title}```***\n{summary}".format(
-                title=wikipedia.page(query).title, # TODO: Use page to get summary as well?
-                summary=wikipedia.summary(query, chars=500))
+            return page.url
+        else: # Return the first ~500 characters of the summary
+            title = page.title
+            summary = page.summary
+            for i in range(0, (len(summary) if len(summary) < 500 else 500) - 1):
+                if summary[i] == '=' and summary[i+1] == '=':
+                    summary = summary[0:i]
+                    break;
+            if len(summary) >= 500:
+                summary = summary[0:500]
+                summary += ' ...*`[truncated]`*'
+            return "***```{title}```***\n{summary}".format(title=title, summary=summary)
     except wikipedia.exceptions.PageError:
         raise bot_exception(WIKIPEDIA_EXCEPTION, 
-            "Page doesn't exist. Trying for some suggestions...```\n{}```".format(
+            "Page doesn't exist. Trying for some suggestions...", '```{}```'.format(
             (wikipedia.suggest(query) if wikipedia.suggest(query) is not None else "None")))
-    except wikipedia.exceptions.DisambiguationError as tp:
-        raise bot_exception(WIKIPEDIA_EXCEPTION, "Query is too ambiguous (as is this error)")
+    except wikipedia.exceptions.DisambiguationError as tp: # Try to get list of suggestions
+        suggestions = wikipedia.search(query, results=5)
+        if len(suggestions) > 0:
+            formatted_suggestions = '```\n'
+            for suggestion in suggestions:
+                formatted_suggestions += '{}\n'.format(suggestion)
+            formatted_suggestions += '```'
+            raise bot_exception(WIKIPEDIA_EXCEPTION, "Query is too ambiguous. Here are some suggestions:", formatted_suggestions)
+        else:
+            raise bot_exception(WIKIPEDIA_EXCEPTION, "Query is too ambiguous. No suggestions found.")
 
 def wolfram_alpha_query(query, simple_result=False, results_limit=2):
     """Returns a query result from Wolfram|Alpha, either in full text or just one result."""
@@ -168,7 +184,7 @@ def wolfram_alpha_query(query, simple_result=False, results_limit=2):
         try: # 
             suggestion = result_root.find('didyoumeans').find('didyoumean').text
         except Exception as e: # TODO: Get proper exception type
-            print(str(e)) # DEBUG
+            print("Something bad happened to the query:\n" + str(e)) # DEBUG
             raise bot_exception(WOLFRAM_ALPHA_EXCEPTION, "Wolfram|Alpha could not interpret your query\n{}".format(query_url))
         raise bot_exception(WOLFRAM_ALPHA_EXCEPTION,
             "Wolfram|Alpha could not interpret your query. Trying for first suggestion '{}'...".format(suggestion),
@@ -187,7 +203,13 @@ def wolfram_alpha_query(query, simple_result=False, results_limit=2):
         if len(list(query_result.results)) > 0:
             to_return += list(query_result.results)[0].text + "\n"
         else: # No explicit 'result' was found
-            to_return += "Closest result: {}\n".format(list(query_result.pods)[1].text)
+            try:
+                to_return += "Closest result:\n{}\n".format(list(query_result.pods)[1].text)
+            except IndexError:
+                to_return += "No valid result returned. This is a bug! Avert your eyes!"
+            except Exception as e: # This shouldn't happen, really
+                print("Something bad happened to the query (returning simple result):\n" + str(e)) # DEBUG
+                raise bot_exception(WOLFRAM_ALPHA_EXCEPTION, "Wolfram|Alpha is now dead. Nice work.")
     else: # Full answer, up to 1800 characters long
         for pod in list(query_result.pods):
             for sub_pod in list(pod.node):
@@ -217,15 +239,15 @@ def urban_dictionary_definition(query):
     rating = '{}% rating'.format(int(100*definition['thumbs_up'] / (definition['thumbs_up'] + definition['thumbs_down'])))
     # Truncate definition and examples so that they aren't so freakin' long
     if len(definition['definition']) > 500:
-        definition['definition'] = '{} *`[truncated]`*'.format(definition['definition'][:499])
+        definition['definition'] = '{} ...*`[truncated]`*'.format(definition['definition'][:499])
     if len(definition['example']) > 500:
-        definition['example'] = '{} `[truncated]`'.format(definition['example'][:499])
+        definition['example'] = '{} ...`[truncated]`'.format(definition['example'][:499])
     elif len(definition['example']) == 0:
         definition['example'] = 'No example provided'
     return '***```{definition[word]}```***\n{definition[definition]}\n*{definition[example]}*\n\n*{query_url}* - *{rating}*'.format(
             definition=definition, rating=rating, query_url=query_url)
 
-def wiktionary_definition(query):
+def wiktionary_definition(query): #TODO: Implement
     return ''
 
 def get_command_info(command):

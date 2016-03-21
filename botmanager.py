@@ -1,19 +1,22 @@
-BOT_VERSION = "0.2.6 alpha"
-BOT_DATE = "February 24th, 2015"
+BOT_VERSION = "0.2.7 alpha"
+BOT_DATE = "March 20th, 2016"
 
-import discord, asyncio, sys, os.path, urllib.request
+import discord, asyncio, sys, os.path, urllib.request, time
 
 from jshbot import configmanager, servermanager, parser
 from jshbot.jbce import bot_exception
 
-# This is dumb.
+# This is necessary?
 class voice_player:
     def __init__(self):
         self.player = None
+        self.server_id = None
 
 client = discord.Client()
 voice_player = voice_player()
 client_id = None
+bot_turned_on_date = time.strftime("%c")
+bot_turned_on_precise = int(time.time())
 
 async def cycle_loop():
     while (True): # Change avatar and status if configured
@@ -50,7 +53,9 @@ def on_ready():
     client_id = client.user.id
 
     # Set bot name and avatar if applicable
-    yield from client.edit_profile(configmanager.config['password'],username=configmanager.config['bot_name'] if configmanager.config['bot_name'] else "JshBot")
+    yield from client.edit_profile(
+            configmanager.config['password'],
+            username=configmanager.config['bot_name'] if configmanager.config['bot_name'] else "JshBot")
     
     # Change avatar and status if configured
     if configmanager.config['cycle_avatars']:
@@ -63,16 +68,17 @@ def on_ready():
     # Change color if configured
     try:
         if configmanager.config['bot_color']:
+            print("Setting bot color on each server...")
             for server in client.servers:
                 if has_role_permissions(server.id):
                     yield from update_color_role(
-                        server.id,
-                        client.user.id,
-                        int(configmanager.config['bot_color'], 16))
+                            server.id,
+                            client.user.id,
+                            int(configmanager.config['bot_color'], 16))
                 else:
-                    print("Uh oh. Bot doesn't have role permissions in server {}".format(str(server)))
+                    print("=== ERROR: Bot doesn't have role permissions in server {}".format(str(server)))
     except ValueError:
-        print("You wanted to update the color, but you screwed it up somehow.")
+        print("=== ERROR: Could not update the color of the bot (is it in the correct format?)")
     
     print("Updating servers information...")
     for server in client.servers:
@@ -107,7 +113,7 @@ def on_message(message):
                     for response in response_list:
                         if response[0]:
                             yield from client.send_message(message.channel, response[0], tts=response[1])
-                            asyncio.sleep(2)
+                            yield from asyncio.sleep(2)
                 except bot_exception as e: # Something bad happened
                     yield from client.send_message(message.channel, str(e))
 
@@ -152,7 +158,6 @@ def get_voice_channel(server_id, voice_channel_id):
     server = discord.utils.get(client.servers, id=server_id)
     return discord.utils.get(server.channels, id=voice_channel_id)
 
-
 def check_opus(): # Check opus and load if it isn't
     pass # Oh look, we loaded Opus. Champagne for everyone!
 
@@ -160,7 +165,7 @@ async def update_bot():
     nickname = configmanager.config['bot_nickname'] if len(configmanager.config['bot_nickname']) <= 50 else ''
     status = configmanager.config['bot_status'] if len(configmanager.config['bot_status']) <= 1000 else ''
     for server in client.servers:
-        print("DEBUG: Updating bot in server {}".format(str(server)))
+        #print("DEBUG: Updating bot in server {}".format(str(server)))
         servermanager.update_user(server.id, client_id, **{'nickname':nickname, 'status':status})
         update_user(server, server.me)
 

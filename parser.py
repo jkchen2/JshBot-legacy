@@ -20,16 +20,15 @@ Hi, I'm a chat bot! I can only respond to a few commands, but they include:
 !tag (create and retrieve tags, essentially a simple macro system)
 !soundtag (tags but with sound)
 !random (flip a coin, roll a die, choose an option, etc.)
-!wikipedia (look things up on Wikipediea)
+!wikipedia (look things up on Wikipedia)
 !wolframalpha (query your input through Wolfram|Alpha)
-!define (define a word using Wiktionary)
+!define (define a word using Wiktionary) (not in quite yet)
 !urbandefine (define a word using Urban Dictionary)
 
 And some other utility commands...
 
 !help (what you're reading right now)
 !ping (is the bot alive? Oh, it is)
-!version (shows the bot version)
 !admin (admins only)
 
 More commands will be available eventually. Key word here is "eventually".
@@ -207,13 +206,22 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
                     "So much wasted space...", "This is pretty annoying, huh? Well TOO BAD.",
                     "No time to delete!"])
                 to_return += '```\n'
-            elif options[0] == 'ca': # TODO: Fix these
+            elif options[0] == 'ca':
                 await botmanager.change_avatar()
-                #await
                 to_return += "Avatar changed"
             elif options[0] == 'cs':
                 await botmanager.change_status()
                 to_return += "Status changed"
+            elif options[0] == 'uptime':
+                uptime_total_seconds = int(time.time()) - botmanager.bot_turned_on_precise
+                uptime_struct = time.gmtime(uptime_total_seconds)
+                days = int(uptime_total_seconds / 86400)
+                hours = uptime_struct.tm_hour
+                minutes = uptime_struct.tm_min
+                seconds = uptime_struct.tm_sec
+                return "The bot has been on since **{initial}**\n{days} days\n{hours} hours\n{minutes} minutes\n{seconds} seconds".format(
+                        initial=botmanager.bot_turned_on_date, days=days, hours=hours, minutes=minutes, seconds=seconds)
+                
             
     if to_return:
         return to_return

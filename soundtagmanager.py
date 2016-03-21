@@ -1,4 +1,4 @@
-import json, os.path, time, random, asyncio, urllib.response, pafy
+import json, os.path, time, random, asyncio, urllib.response, pafy, threading
 
 from xml.dom.minidom import parseString
 from mutagen.mp3 import MP3
@@ -8,7 +8,7 @@ from jshbot.servermanager import get_data, write_data
 from jshbot.jbce import bot_exception
 
 commands_dictionary = {'module_commands':['soundtag', 'st'],
-                       'shortcut_commands':['stc', 'str', 'stl', 'sts'],
+                       'shortcut_commands':['stc', 'str', 'stl', 'sts', 'stfu'],
                        'private_module_commands':[],
                        'private_shortcut_commands':[]}
 commands = []
@@ -47,9 +47,37 @@ Shortcuts:
         [!stl (user name)]
     !soundtag -search <sound name>
         [!sts <sound name>]
+    !soundtag -stop
+        [!stfu]
 ```""".format(usage_string=usage_string)
 
 EXCEPT_TYPE = "Sound Tag manager"
+
+timeout_reset_lock = threading.Lock()
+timeout_goal = 0
+timeout_running = False
+
+async def timeout_disconnect():
+    global timeout_goal
+    global timeout_running
+    
+    timeout_reset_lock.acquire()
+    if timeout_running:
+        timeout_reset_lock.release()
+        return
+    timeout_reset_lock.release()
+    while (True): # Loop until timeout goal reached
+        timeout_reset_lock.acquire()
+        timeout_running = True
+        time_difference = timeout_goal - time.time()
+        if time_difference <= 1:
+            break;
+        timeout_reset_lock.release()
+        await asyncio.sleep(time_difference)
+    
+    timeout_running = False
+    timeout_reset_lock.release()
+    await stop_sounds(None, timeout=True)
 
 def get_sound_tag_data(server_id, sound_tag_name):
     """Ensures that the given sound tag exists and return sound tag data, otherwise throw an exception."""
@@ -78,7 +106,7 @@ def list_sound_tags(server_id, user_id=''):
     """Lists either all sound tags or sound tags made by a specific user."""
     initial_text = "Listing all sound tags:"
     if user_id:
-        initial_text = "Listing sound tags by {}:".format(usermanager.get_name(server_id, user_id))
+        initial_text = "Listing sound tags created by {}:".format(usermanager.get_name(server_id, user_id))
     sound_tags = servermanager.servers_data[server_id]['sound_tags']
     found_list = []
     for sound_tag_name, sound_tag_data in sound_tags.items():
@@ -98,12 +126,11 @@ def process_found_list(initial_text, found_list):
     """Helper function for search_sound_tags and list_sound_tags."""
     found_list.sort()
     list_string = ''
-    #list_string += '{}, '.format(sound_tag_name) for sound_tag_name in found_list
     for sound_tag_name in found_list:
         list_string += '{}, '.format(sound_tag_name)
     if not list_string:
         list_string = "No sound tags found!  " # Maybe I can't avoid this one.
-    return "{initial_text}{block}{list_string}{block}".format(initial_text=initial_text, block='\n```\n', list_string=list_string[:-2])
+    return "{initial_text}\n```\n{list_string}\n```\n".format(initial_text=initial_text, list_string=list_string[:-2])
     
 # This function does not work. Don't use it. Or maybe it does. I dunno.
 async def get_random_sound_tag(server_id, voice_channel_id, user_id):
@@ -122,7 +149,6 @@ def update_sound_tag(server_id, sound_tag_name, increment_hits=False, **kwargs):
     increment_hits -- increments the hits counter of the tag
     user_id -- user trying to modify the tag
     author_id -- author of the tag
-    start -- where the sound should start playing
     duration -- how long the sound should play for
     url -- url of the audio source
     private -- whether or not the tag can only be called by the author
@@ -157,7 +183,7 @@ def update_sound_tag(server_id, sound_tag_name, increment_hits=False, **kwargs):
                 raise bot_exception(EXCEPT_TYPE, "Invalid direct download file or URL")
             
         length_limit = int(configmanager.config['sound_tag_length_limit'])
-        if int(length) > length_limit:
+        if length_limit > 0 and int(length) > length_limit:
             raise bot_exception(EXCEPT_TYPE, "Sound tags can be no longer than {} second{}".format(
                 length_limit, 's' if length_limit > 1 else ''))
         kwargs['length'] = int(length)
@@ -172,6 +198,8 @@ def update_sound_tag(server_id, sound_tag_name, increment_hits=False, **kwargs):
             servers_data[server_id]['sound_tags'][sound_tag_name].update(kwargs)
             to_return += "Sound tag '{}' successfully modified!".format(full_name)
         except KeyError: # Tag doesn't exist. Create it.
+            if configmanager.config['sound_tags_per_server'] > 0 and len(servers_data[server_id]['sound_tags']) >= configmanager.config['sound_tags_per_server']:
+                raise bot_exception(EXCEPT_TYPE, "This server has hit the sound tag limit of {}".format(configmanager.config['sound_tags_per_server']))
             if 'url' not in kwargs:
                 raise bot_exception(EXCEPT_TYPE, "Sound tag '{}' does not exist".format(sound_tag_name))
             if len(sound_tag_name) > 50:
@@ -212,12 +240,14 @@ async def play_sound_tag(server_id, voice_channel_id, sound_tag_name, user_id):
     
     from jshbot.botmanager import client
     from jshbot.botmanager import voice_player
+    global timeout_goal
     
     channel = botmanager.get_voice_channel(server_id, voice_channel_id)
     if client.voice == None or client.voice.channel != channel or not client.voice.is_connected(): # Connect to channel
         if client.voice: # Disconnect from old channel
             await client.voice.disconnect()
         client.voice = await client.join_voice_channel(channel)
+        voice_player.server_id = server_id
     
     if voice_player.player is not None and voice_player.player.is_playing(): # Stop if playing
         voice_player.player.stop()
@@ -234,19 +264,32 @@ async def play_sound_tag(server_id, voice_channel_id, sound_tag_name, user_id):
         except:
             raise bot_exception(EXCEPT_TYPE, "An error occurred when downloading the sound file")
     voice_player.player.start()
+    
+    timeout = configmanager.config['voice_timeout']
+    if timeout >= 0:
+        timeout_reset_lock.acquire()
+        timeout_goal = time.time() + ((timeout*60) if timeout > 0 else (sound_tag_data['length']+1))
+        timeout_reset_lock.release()
+        await timeout_disconnect()
 
-async def stop_sounds():
+async def stop_sounds(server_id, timeout=False):
     """Stops all audio and disconnects the bot from the voice channel."""
     from jshbot.botmanager import client
     from jshbot.botmanager import voice_player
     
     if voice_player.player and voice_player.player.is_playing():
+        if not timeout:
+            if voice_player.server_id != server_id: # Ensure we're stopping the bot on the server it is playing at
+                raise bot_exception(EXCEPT_TYPE, "The bot is not connected to this server")
         voice_player.player.stop()
         if client.voice:
             await client.voice.disconnect()
+        voice_player.server_id = None
     elif client.voice.is_connected():
         await client.voice.disconnect()
-    else:
+        if voice_player:
+            voice_player.server_id = None
+    elif not timeout:
         raise bot_exception(EXCEPT_TYPE, "No sound is playing")
     return "Stopping all sounds and disconnecting..."
     
@@ -321,8 +364,10 @@ async def get_response(command, options, arguments, arguments_blocks, raw_parame
         elif num_options == 1 and num_arguments == 2: # Modify sound tag url
             return update_sound_tag(server_id, sound_tag_name=arguments[0].lower(), user_id=user_id, url=arguments[1], private=False)
     
-    elif not using_shortcut and num_options == 1 and num_arguments == 0 and options[0] in ['stop', 'silence', 'silent', 'fu']:
-        return await stop_sounds()
+    # Stop sounds
+    elif ((command in ['stfu'] and num_arguments == 0 and num_options == 0) or
+            (not using_shortcut and num_options == 1 and num_arguments == 0 and options[0] in ['stop', 'silence', 'silent', 'fu'])):
+        return await stop_sounds(server_id)
     
 
     # Invalid command
