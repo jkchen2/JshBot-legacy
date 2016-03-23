@@ -1,7 +1,7 @@
 import json, os.path, inspect, asyncio
 
 from jshbot import configmanager, servermanager, botmanager
-from jshbot.servermanager import get_data, write_data
+from jshbot.servermanager import write_data
 from jshbot.jbce import bot_exception
 
 commands_dictionary = {'module_commands':['user', 'u'],
@@ -96,6 +96,7 @@ Discriminator: {user_data[discriminator]}
 Aliases: {user_data[aliases]}
 Permissions: {permissions_text}
 Joined: {user_data[joined]}
+Last seen: {user_data[last_seen]}
 Last played game: {user_data[last_game]}
 Color: {user_data[color]}
 Status: {user_data[status]}
@@ -105,7 +106,10 @@ Avatar: {user_data[avatar]}
     
 def get_name(server_id, user_id):
     """Returns the user name of the given user ID."""
-    return servermanager.servers_data[server_id]['users'][user_id]['name']
+    try:
+        return servermanager.servers_data[server_id]['users'][user_id]['name']
+    except KeyError:
+        return "Non-existent"
     
 def get_status(server_id, user_id):
     """Builds a string showing the status of the given user."""

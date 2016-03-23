@@ -4,7 +4,7 @@ from xml.dom.minidom import parseString
 from mutagen.mp3 import MP3
 
 from jshbot import servermanager, usermanager, botmanager, configmanager
-from jshbot.servermanager import get_data, write_data
+from jshbot.servermanager import write_data
 from jshbot.jbce import bot_exception
 
 commands_dictionary = {'module_commands':['soundtag', 'st'],

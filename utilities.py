@@ -236,7 +236,9 @@ def urban_dictionary_definition(query):
     if urban_data['result_type'] != 'exact': # Probably 'no_result', but this is safer
         raise bot_exception(URBAN_DICTIONARY_EXCEPTION, "The query '{}' returned no results".format(query), query_url)
     definition = urban_data['list'][0]
-    rating = '{}% rating'.format(int(100*definition['thumbs_up'] / (definition['thumbs_up'] + definition['thumbs_down'])))
+    rating = '{}% rating (:thumbsup:{} | :thumbsdown:{})'.format(
+            int(100*definition['thumbs_up'] / (definition['thumbs_up'] + definition['thumbs_down'])),
+            definition['thumbs_up'], definition['thumbs_down'])
     # Truncate definition and examples so that they aren't so freakin' long
     if len(definition['definition']) > 500:
         definition['definition'] = '{} ...*`[truncated]`*'.format(definition['definition'][:499])
@@ -244,7 +246,7 @@ def urban_dictionary_definition(query):
         definition['example'] = '{} ...`[truncated]`'.format(definition['example'][:499])
     elif len(definition['example']) == 0:
         definition['example'] = 'No example provided'
-    return '***```{definition[word]}```***\n{definition[definition]}\n*{definition[example]}*\n\n*{query_url}* - *{rating}*'.format(
+    return '***```{definition[word]}```***\n{definition[definition]}\n\n*{definition[example]}*\n\n*{query_url}* - {rating}'.format(
             definition=definition, rating=rating, query_url=query_url)
 
 def wiktionary_definition(query): #TODO: Implement

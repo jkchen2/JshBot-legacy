@@ -1,5 +1,5 @@
-BOT_VERSION = "0.2.7 alpha"
-BOT_DATE = "March 20th, 2016"
+BOT_VERSION = "0.2.8 alpha"
+BOT_DATE = "March 22nd, 2016"
 
 import discord, asyncio, sys, os.path, urllib.request, time
 
@@ -18,8 +18,11 @@ client_id = None
 bot_turned_on_date = time.strftime("%c")
 bot_turned_on_precise = int(time.time())
 
+last_responses_dictionary = {}
+
 async def cycle_loop():
-    while (True): # Change avatar and status if configured
+    """Cycles through the avatars and statuses."""
+    while (True):
         await asyncio.sleep(configmanager.config['cycle_period']*60*60)
         if configmanager.config['cycle_avatars']:
             print("Changing avatar...")
@@ -44,7 +47,7 @@ def initialize():
     try:
         client.run(configmanager.config['email'], configmanager.config['password'])
     except KeyError:
-        print("Could not find the email or password field! Please set up the config.json file.")
+        print("=== ERROR: Could not find the email or password field! Please set up the config.json file.")
     
 @client.async_event
 def on_ready():
@@ -52,10 +55,15 @@ def on_ready():
     global client_id
     client_id = client.user.id
 
-    # Set bot name and avatar if applicable
-    yield from client.edit_profile(
-            configmanager.config['password'],
-            username=configmanager.config['bot_name'] if configmanager.config['bot_name'] else "JshBot")
+    # Set bot name
+    try:
+        yield from client.edit_profile(
+                configmanager.config['password'],
+                username=configmanager.config['bot_name'] if configmanager.config['bot_name'] else "JshBot")
+    except KeyError:
+        print("=== ERROR: Could not find the bot name field! Please set up the config.json file.")
+    except:
+        print("=== ERROR: Failed to change bot name (limit 2 name changes per hour)")
     
     # Change avatar and status if configured
     if configmanager.config['cycle_avatars']:
@@ -82,7 +90,7 @@ def on_ready():
     
     print("Updating servers information...")
     for server in client.servers:
-        update_server(server)
+        update_server(server, update_all=True)
 
     yield from update_bot()
 
@@ -90,9 +98,8 @@ def on_ready():
     if configmanager.config['cycle_avatars'] or configmanager.config['cycle_statuses']:
         yield from cycle_loop()
 
-@client.async_event
-def on_message(message):
-
+async def get_response(message, send_typing=True):
+    """Gets a response. Split up so messages can be edited."""
     # Check if the message is a valid command and the server or channel is not muted
     if (message.content and message.content[0] in configmanager.config['command_invokers'] and message.author.id != client.user.id): # Valid invoker from not the bot
         is_private = (type(message.channel) is discord.PrivateChannel)
@@ -102,20 +109,48 @@ def on_message(message):
                     (not servermanager.is_muted(server_id=message.server.id, channel_id=message.channel.id) or # Server or channel is not muted or
                     (servermanager.is_admin(message.server.id, message.author.id) and message.content[1:].startswith('admin')))): # Admin is unmuting bot
                 try:
-                    yield from client.send_typing(message.channel)
-                    response_list = yield from parser.parse(
+                    global last_responses_dictionary
+                    if send_typing:
+                        await client.send_typing(message.channel)
+                    return await parser.parse(
                         message.content,
                         message.server.id if not is_private else '0', 
                         message.channel.id if not is_private else '0',
                         message.author.id if not is_private else '0',
                         message.author.voice_channel.id if (not is_private and message.author.voice_channel) else 0, # Previously type None
                         is_private)
-                    for response in response_list:
-                        if response[0]:
-                            yield from client.send_message(message.channel, response[0], tts=response[1])
-                            yield from asyncio.sleep(2)
                 except bot_exception as e: # Something bad happened
-                    yield from client.send_message(message.channel, str(e))
+                    return [str(e), False]
+    return ['', False]
+
+@client.async_event
+def on_message(message):
+    response = yield from get_response(message)
+    if response[0]:
+        message_reference = yield from client.send_message(message.channel, response[0], tts=response[1])
+        if configmanager.config['edit_timeout'] > 0:
+            last_responses_dictionary[message.id] = message_reference
+            yield from asyncio.sleep(configmanager.config['edit_timeout'])
+            if last_responses_dictionary[message.id].edited_timestamp is None: # Message was not edited
+                del last_responses_dictionary[message.id]
+
+@client.async_event
+def on_message_edit(before, after):
+    try:
+        message_reference = last_responses_dictionary[before.id]
+    except KeyError: # The bot did not previous respond to this message
+        return
+    print("DEBUG: Message was edited. Bot is editing response.")
+    response = yield from get_response(after, send_typing=False)
+    if response[0]:
+        message_reference = yield from client.edit_message(message_reference, response[0])
+    else:
+        yield from client.delete_message(message_reference)
+    if configmanager.config['edit_timeout'] > 0:
+        last_responses_dictionary[before.id] = message_reference
+        yield from asyncio.sleep(configmanager.config['edit_timeout'])
+        if last_responses_dictionary[before.id].edited_timestamp == message_reference.edited_timestamp: # Message was not edited
+            del last_responses_dictionary[before.id]
 
 @client.async_event
 def interrupt_broadcast(server_id, channel_id, text):
@@ -166,7 +201,9 @@ async def update_bot():
     status = configmanager.config['bot_status'] if len(configmanager.config['bot_status']) <= 1000 else ''
     for server in client.servers:
         #print("DEBUG: Updating bot in server {}".format(str(server)))
-        servermanager.update_user(server.id, client_id, **{'nickname':nickname, 'status':status})
+        servermanager.update_user(server.id, client_id, 
+                **{'nickname':nickname, 'status':status, 'last_seen':'behind you', 'last_game':'',
+                        'color':'#{}'.format(configmanager.config['bot_color'])})
         update_user(server, server.me)
 
 async def change_avatar():
@@ -175,36 +212,39 @@ async def change_avatar():
 async def change_status():
     await client.change_status(game=discord.Game(name=configmanager.get_random_status()), idle=False)
     
-def update_server(server):
+def update_server(server, update_all=False):
     servermanager.update_server(
-        server_id=server.id,
-        name=server.name,
-        total_members=len(server.members),
-        owner=server.owner.id,
-        icon=server.icon_url)
-    for channel in server.channels:
-        update_channel(server, channel)
-    for user in server.members:
-        update_user(server, user)
+            server_id=server.id,
+            name=server.name,
+            total_members=len(server.members),
+            owner=server.owner.id,
+            icon=server.icon_url)
+    if update_all:
+        for channel in server.channels:
+            update_channel(server, channel)
+        for user in server.members:
+            update_user(server, user)
 
 def update_channel(server, channel):
     servermanager.update_channel(
-        server_id=server.id,
-        channel_id=channel.id,
-        name=channel.name,
-        position=channel.position,
-        default=channel.is_default,
-        voice=str(channel.type) == 'voice')
+            server_id=server.id,
+            channel_id=channel.id,
+            name=channel.name,
+            position=channel.position,
+            default=channel.is_default,
+            voice=str(channel.type) == 'voice')
 
-def update_user(server, user):
+def update_user(server, user, update_seen=False):
+    last_game = ''
+    last_seen = ''
+    if type(user) is discord.Member and user.game is not None:
+        last_game = str(user.game)
+    if update_seen:
+        last_seen = time.strftime("%c")
     servermanager.update_user(
-        server_id=server.id,
-        user_id=user.id,
-        name=user.name,
-        avatar=user.avatar_url,
-        discriminator=str(user.discriminator),
-        joined=str(user.joined_at),
-        last_game=str(user.game) if (type(user) is discord.Member and user.game is not None) else '')
+            server_id=server.id, user_id=user.id, name=user.name,
+            avatar=user.avatar_url, discriminator=str(user.discriminator),
+            joined=str(user.joined_at), last_game=last_game, last_seen=last_seen)
                                    
 def remove_server(server):
     servermanager.remove_server(server.id)
@@ -244,8 +284,8 @@ def on_member_remove(member):
     update_server(member.server)
 @client.async_event
 def on_member_update(before, after):
-    #print("DEBUG: Updating a member") # Prints VERY frequently
-    update_user(after.server, after)
+    #print("DEBUG: Updating a member ({})".format(after.name)) # Prints VERY frequently
+    update_user(after.server, after, update_seen=True)
 @client.async_event
 def on_member_join(member):
     print("DEBUG: Member joining")

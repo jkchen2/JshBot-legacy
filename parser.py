@@ -282,7 +282,6 @@ async def parse(text, server_id, channel_id, author_id, voice_channel_id, is_pri
     
     # Get proper response
     to_return = ['', False] # Text response, TTS
-    module = ''
     get_response_function = help # Function placeholder
     
     # TODO: See if there is an object representation of modules
@@ -317,14 +316,7 @@ async def parse(text, server_id, channel_id, author_id, voice_channel_id, is_pri
         to_return[0] += "Sorry, I can't seem to do that right now. You should never see this, by the way. What is most likely going on is that you are hallucinating this error."
         
     if to_return[0] is not None and len(to_return[0]) > 1900: # Split responses up if it is too long
-        to_return[0] = "```\n***Looks like the response is very large. It might look a little messed up because it's gettin' chopped up.***```\n" + to_return[0]
-        chopped_string = [to_return[0][c:c+1900] for c in range(0, len(to_return[0]), 1900)] # Thanks, @satomacoto from SO!
-        use_tts = to_return[1]
-        to_return = []
-        for string in chopped_string:
-            to_return.append([string, use_tts])
-    else:
-        to_return = [to_return]
+        to_return[0] = "```\n***Looks like the response is very large. It might look a little messed up because it's gettin' chopped up.***```\n" + to_return[0][:1900]
         
     return to_return
     

@@ -9,12 +9,7 @@ EXCEPT_TYPE = "Server manager"
 servers_data = {}
 write_lock = threading.Lock()
 
-# I hate typing
-def get_data(): # Unused, delete later
-    """Returns the servers.json file as a dictionary. DEPRECATED"""
-    with open(data_directory + '/servers.json', 'r') as servers_file:
-        return json.load(servers_file)
-        
+# I hate typing        
 def load_data():
     """Loads the servers.json data file into servers_data"""
     global servers_data
@@ -142,6 +137,7 @@ def update_user(server_id, user_id, **kwargs):
     avatar -- URL of the user's avatar
     discriminator -- discriminator?????
     joined -- date the user joined
+    last_seen -- date of when the user was last seen online
     last_game -- last known game the user played
     nickname -- nickname (should only be passed when bot is changing nickname)
     status -- status (same as nickname, only for bot use)
@@ -154,6 +150,10 @@ def update_user(server_id, user_id, **kwargs):
                 kwargs['aliases'] = aliases
         except KeyError: # No name was given - it's the bot
             pass
+        if not kwargs['last_seen']: # The last seen date and game shouldn't be overwritten
+            del kwargs['last_seen']
+        if not kwargs['last_game']:
+            del kwargs['last_game']
         servers_data[server_id]['users'][user_id].update(kwargs)
     except KeyError: # User doesn't exist. Create it.
         servers_data[server_id]['users'][user_id] = {
