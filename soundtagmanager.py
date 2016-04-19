@@ -253,6 +253,8 @@ async def play_sound_tag(server_id, voice_channel_id, sound_tag_name, user_id):
         voice_player.player.stop()
         
     if sound_tag_data['type'] == 'YouTube':
+        # To prevent playlist downloads
+        # 'noplaylist': True
         voice_player.player = await client.voice.create_ytdl_player(sound_tag_data['url'])
     else: # Direct download (or stream? Not sure)
         try:
@@ -276,7 +278,6 @@ async def stop_sounds(server_id, timeout=False):
     """Stops all audio and disconnects the bot from the voice channel."""
     from jshbot.botmanager import client
     from jshbot.botmanager import voice_player
-    
     if voice_player.player and voice_player.player.is_playing():
         if not timeout:
             if voice_player.server_id != server_id: # Ensure we're stopping the bot on the server it is playing at
@@ -286,6 +287,9 @@ async def stop_sounds(server_id, timeout=False):
             await client.voice.disconnect()
         voice_player.server_id = None
     elif client.voice.is_connected():
+        if not timeout:
+            if voice_player.server_id != server_id: # Ensure we're stopping the bot on the server it is playing at
+                raise bot_exception(EXCEPT_TYPE, "The bot is not connected to this server")
         await client.voice.disconnect()
         if voice_player:
             voice_player.server_id = None

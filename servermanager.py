@@ -89,7 +89,7 @@ def mute_server(server_id, mute=True):
     write_data()
     return "Server successfully {}muted".format('' if mute else "un")
 
-def update_server(server_id, **kwargs):
+def update_server(server_id, force_write=True, **kwargs):
     """Updates server information, or adds a new server.
     
     Keyword arguments:
@@ -112,9 +112,10 @@ def update_server(server_id, **kwargs):
             'bans':[],
             'admins':[]
         }
-    write_data()
+    if force_write:
+        write_data()
 
-def update_channel(server_id, channel_id, **kwargs):
+def update_channel(server_id, channel_id, force_write=True, **kwargs):
     """Updates channel information, or adds a new channel.
     
     Keyword arguments:
@@ -127,9 +128,10 @@ def update_channel(server_id, channel_id, **kwargs):
         servers_data[server_id]['channels'][channel_id].update(kwargs)
     except KeyError: # Channel doesn't exist. Create it.
         servers_data[server_id]['channels'][channel_id] = {**kwargs, 'muted':False}
-    write_data()
+    if force_write:
+        write_data()
     
-def update_user(server_id, user_id, **kwargs):
+def update_user(server_id, user_id, force_write=True, **kwargs):
     """Updates user information, or adds a new user.
     
     Keyword arguments:
@@ -167,7 +169,8 @@ def update_user(server_id, user_id, **kwargs):
             'love_level':0,
             'aliases':[kwargs['name']]
         }
-    write_data()
+    if force_write:
+        write_data()
     
 # Remove user, remove channel, and remove server
 def remove_server(server_id):

@@ -1,5 +1,5 @@
-BOT_VERSION = "0.2.8 alpha"
-BOT_DATE = "March 22nd, 2016"
+BOT_VERSION = "0.2.9 alpha"
+BOT_DATE = "April 19th, 2016"
 
 import discord, asyncio, sys, os.path, urllib.request, time
 
@@ -87,10 +87,12 @@ def on_ready():
                     print("=== ERROR: Bot doesn't have role permissions in server {}".format(str(server)))
     except ValueError:
         print("=== ERROR: Could not update the color of the bot (is it in the correct format?)")
+    except discord.HTTPException:
+        print("=== ERROR: General HTTP exception thrown - you might be changing colors too fast?")
     
     print("Updating servers information...")
     for server in client.servers:
-        update_server(server, update_all=True)
+        update_server(server, update_all=True, force_write=False)
 
     yield from update_bot()
 
@@ -212,29 +214,32 @@ async def change_avatar():
 async def change_status():
     await client.change_status(game=discord.Game(name=configmanager.get_random_status()), idle=False)
     
-def update_server(server, update_all=False):
+def update_server(server, update_all=False, force_write=False):
     servermanager.update_server(
             server_id=server.id,
             name=server.name,
             total_members=len(server.members),
             owner=server.owner.id,
-            icon=server.icon_url)
+            icon=server.icon_url,
+            force_write=force_write)
     if update_all:
         for channel in server.channels:
-            update_channel(server, channel)
+            update_channel(server, channel, force_write)
         for user in server.members:
-            update_user(server, user)
+            update_user(server, user, force_write)
+    servermanager.write_data()
 
-def update_channel(server, channel):
+def update_channel(server, channel, force_write=False):
     servermanager.update_channel(
             server_id=server.id,
             channel_id=channel.id,
             name=channel.name,
             position=channel.position,
             default=channel.is_default,
-            voice=str(channel.type) == 'voice')
+            voice=str(channel.type) == 'voice',
+            force_write=force_write)
 
-def update_user(server, user, update_seen=False):
+def update_user(server, user, update_seen=False, force_write=False):
     last_game = ''
     last_seen = ''
     if type(user) is discord.Member and user.game is not None:
@@ -244,7 +249,7 @@ def update_user(server, user, update_seen=False):
     servermanager.update_user(
             server_id=server.id, user_id=user.id, name=user.name,
             avatar=user.avatar_url, discriminator=str(user.discriminator),
-            joined=str(user.joined_at), last_game=last_game, last_seen=last_seen)
+            joined=str(user.joined_at), last_game=last_game, last_seen=last_seen, force_write=force_write)
                                    
 def remove_server(server):
     servermanager.remove_server(server.id)
@@ -276,7 +281,7 @@ def on_server_update(server):
 @client.async_event
 def on_server_join(server):
     print("DEBUG: Joining a server")
-    update_server(server)
+    update_server(server, update_all=True)
 @client.async_event # Users
 def on_member_remove(member):
     print("DEBUG: Removing a member")
